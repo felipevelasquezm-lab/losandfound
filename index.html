@@ -232,6 +232,19 @@
     padding:2px 7px;
     border-radius:99px;
   }
+  .tag-photo.has-photo{cursor:zoom-in;}
+  .photo-zoom-preview{
+    position:fixed;
+    display:none;
+    width:320px;
+    height:320px;
+    background:#fff center/contain no-repeat;
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:0 12px 32px rgba(0,0,0,.28);
+    z-index:1000;
+    pointer-events:none;
+  }
   .tag-body{
     padding:16px 18px 14px;
     flex:1;
@@ -490,6 +503,8 @@
 </main>
 
 <footer class="appfoot">Lost &amp; Found · registro interno del hotel · datos servidos por Supabase</footer>
+
+<div id="photoZoomPreview" class="photo-zoom-preview"></div>
 
 <!-- ---------- Modal: crear / editar objeto ---------- -->
 <div class="overlay" id="overlay">
@@ -780,7 +795,7 @@
       <div class="tag" data-id="${item.id}">
         <span class="tag-hole"></span>
         ${item.photo_url
-          ? `<div class="tag-photo" style="background-image:url('${item.photo_url}')">${
+          ? `<div class="tag-photo has-photo" data-photo="${item.photo_url}" style="background-image:url('${item.photo_url}')">${
               (item.photo_urls && item.photo_urls.length > 1) ? `<span class="photo-count-badge">+${item.photo_urls.length - 1}</span>` : ''
             }</div>`
           : `<div class="tag-photo">Sin foto</div>`}
@@ -813,6 +828,38 @@
     grid.querySelectorAll('.btn-edit').forEach(btn => {
       btn.addEventListener('click', () => openModal(btn.dataset.id));
     });
+
+    attachPhotoZoomHandlers();
+  }
+
+  const zoomPreview = document.getElementById('photoZoomPreview');
+
+  function attachPhotoZoomHandlers(){
+    grid.querySelectorAll('.tag-photo.has-photo').forEach(thumb => {
+      thumb.addEventListener('mouseenter', () => {
+        const url = thumb.dataset.photo;
+        zoomPreview.style.backgroundImage = `url('${url}')`;
+        positionZoomPreview(thumb);
+        zoomPreview.style.display = 'block';
+      });
+      thumb.addEventListener('mouseleave', () => {
+        zoomPreview.style.display = 'none';
+      });
+    });
+  }
+
+  function positionZoomPreview(thumb){
+    const rect = thumb.getBoundingClientRect();
+    const previewSize = 320;
+    const margin = 10;
+    // Centrado sobre la propia miniatura que se está mirando
+    let left = rect.left + (rect.width / 2) - (previewSize / 2);
+    let top = rect.top + (rect.height / 2) - (previewSize / 2);
+    // evita que se salga de la pantalla por los bordes
+    left = Math.max(margin, Math.min(left, window.innerWidth - previewSize - margin));
+    top = Math.max(margin, Math.min(top, window.innerHeight - previewSize - margin));
+    zoomPreview.style.left = left + 'px';
+    zoomPreview.style.top = top + 'px';
   }
 
   async function loadItems(){

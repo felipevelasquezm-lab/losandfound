@@ -220,6 +220,17 @@
     color:var(--text-dim);
     font-size:12px;
     border-bottom:1px solid var(--line);
+    position:relative;
+  }
+  .photo-count-badge{
+    position:absolute;
+    bottom:8px;right:8px;
+    background:rgba(20,20,20,.72);
+    color:#fff;
+    font-size:11px;
+    font-weight:700;
+    padding:2px 7px;
+    border-radius:99px;
   }
   .tag-body{
     padding:16px 18px 14px;
@@ -372,6 +383,46 @@
     background-position:center;
     flex-shrink:0;
   }
+  .photo-gallery{display:flex;flex-wrap:wrap;gap:10px;}
+  .photo-thumb{
+    position:relative;
+    width:76px;height:76px;
+    border-radius:var(--radius);
+    background:var(--paper-dim);
+    border:1px solid var(--line);
+    background-size:cover;
+    background-position:center;
+    flex-shrink:0;
+  }
+  .photo-thumb .photo-remove{
+    position:absolute;
+    top:-7px;right:-7px;
+    width:20px;height:20px;
+    border-radius:50%;
+    background:#1a1a1a;
+    color:#fff;
+    border:2px solid var(--paper);
+    font-size:12px;
+    line-height:1;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+    padding:0;
+  }
+  .photo-add-tile{
+    width:76px;height:76px;
+    border-radius:var(--radius);
+    background:var(--paper-dim);
+    border:1.5px dashed var(--line);
+    display:flex;align-items:center;justify-content:center;
+    font-size:26px;
+    color:var(--text-dim);
+    cursor:pointer;
+    flex-shrink:0;
+    transition:.15s;
+  }
+  .photo-add-tile:hover{border-color:var(--accent-dim);color:var(--accent-dim);}
+  .field-conditional{display:none;}
+  .field-conditional.show{display:block;}
   .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}
   .helper{font-size:11.5px;color:var(--text-dim);margin-top:-4px;}
 
@@ -487,15 +538,31 @@
             <label for="foundBy">Encontrado por (mucama / staff)</label>
             <input type="text" id="foundBy" placeholder="Ej: Camarera Rosa Muñoz">
           </div>
+          <div class="field">
+            <label for="foundLocation">Lugar donde se encontró</label>
+            <select id="foundLocation">
+              <option value="Habitación">Habitación</option>
+              <option value="Lobby">Lobby</option>
+              <option value="Bar">Bar</option>
+              <option value="Restaurante">Restaurante</option>
+              <option value="Baño del lobby">Baño del lobby</option>
+              <option value="Piscina / Spa">Piscina / Spa</option>
+              <option value="Estacionamiento">Estacionamiento</option>
+              <option value="Salón de eventos">Salón de eventos</option>
+              <option value="Gimnasio">Gimnasio</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </div>
+          <div class="field field-conditional" id="foundLocationOtherWrap">
+            <label for="foundLocationOther">Especificar lugar</label>
+            <input type="text" id="foundLocationOther" placeholder="Ej: Ascensor piso 3">
+          </div>
         </div>
         <div class="field full">
-          <label for="photoFile">Foto del objeto</label>
-          <div class="photo-input-row">
-            <div class="photo-preview" id="photoPreview"></div>
-            <input type="file" id="photoFile" accept="image/*">
-          </div>
-          <input type="hidden" id="photoUrl">
-          <div class="helper">Se sube al bucket <span class="mono">lost-found-photos</span> de Supabase Storage.</div>
+          <label for="photoFile">Fotos del objeto</label>
+          <div class="photo-gallery" id="photoGallery"></div>
+          <input type="file" id="photoFile" accept="image/*" style="display:none;">
+          <div class="helper">Puedes agregar más de una foto (ej. frente y reverso). Se suben al bucket <span class="mono">lost-found-photos</span> de Supabase Storage.</div>
         </div>
       </fieldset>
 
@@ -589,13 +656,37 @@
   const recipientRoleSel = document.getElementById('recipientRole');
   const recipientOtherWrap = document.getElementById('recipientOtherWrap');
   const photoFileInput = document.getElementById('photoFile');
-  const photoPreview = document.getElementById('photoPreview');
-  const photoUrlHidden = document.getElementById('photoUrl');
+  const photoGallery = document.getElementById('photoGallery');
+  const foundLocationSel = document.getElementById('foundLocation');
+  const foundLocationOtherWrap = document.getElementById('foundLocationOtherWrap');
+  const foundLocationOtherInput = document.getElementById('foundLocationOther');
 
   let allItems = [];
   let activeFilter = 'all';
   let searchTerm = '';
-  let pendingPhotoFile = null;
+  // Cada foto: { kind:'existing', url:'https://...' }  ó  { kind:'new', file:File, previewUrl:'data:...' }
+  let photos = [];
+
+  function toggleFoundLocationOther(){
+    foundLocationOtherWrap.classList.toggle('show', foundLocationSel.value === 'Otro');
+  }
+  foundLocationSel.addEventListener('change', toggleFoundLocationOther);
+
+  function renderPhotoGallery(){
+    photoGallery.innerHTML = photos.map((p, idx) => `
+      <div class="photo-thumb" style="background-image:url('${p.kind === 'existing' ? p.url : p.previewUrl}')">
+        <button type="button" class="photo-remove" data-idx="${idx}" title="Quitar foto">&times;</button>
+      </div>
+    `).join('') + `<div class="photo-add-tile" id="photoAddTile" title="Agregar foto">+</div>`;
+
+    photoGallery.querySelectorAll('.photo-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        photos.splice(Number(btn.dataset.idx), 1);
+        renderPhotoGallery();
+      });
+    });
+    document.getElementById('photoAddTile').addEventListener('click', () => photoFileInput.click());
+  }
 
   function populateRecipientOptions(){
     const custody = currentCustodySel.value;
@@ -630,10 +721,13 @@
   photoFileInput.addEventListener('change', () => {
     const file = photoFileInput.files[0];
     if(!file) return;
-    pendingPhotoFile = file;
     const reader = new FileReader();
-    reader.onload = e => { photoPreview.style.backgroundImage = `url(${e.target.result})`; };
+    reader.onload = e => {
+      photos.push({ kind: 'new', file, previewUrl: e.target.result });
+      renderPhotoGallery();
+    };
     reader.readAsDataURL(file);
+    photoFileInput.value = ''; // permite volver a elegir el mismo archivo o agregar otro
   });
 
   function fmtDate(d){
@@ -686,7 +780,9 @@
       <div class="tag" data-id="${item.id}">
         <span class="tag-hole"></span>
         ${item.photo_url
-          ? `<div class="tag-photo" style="background-image:url('${item.photo_url}')"></div>`
+          ? `<div class="tag-photo" style="background-image:url('${item.photo_url}')">${
+              (item.photo_urls && item.photo_urls.length > 1) ? `<span class="photo-count-badge">+${item.photo_urls.length - 1}</span>` : ''
+            }</div>`
           : `<div class="tag-photo">Sin foto</div>`}
         <div class="tag-body">
           <div class="tag-top-row">
@@ -741,9 +837,9 @@
   function resetForm(){
     form.reset();
     document.getElementById('itemId').value = '';
-    photoPreview.style.backgroundImage = '';
-    photoUrlHidden.value = '';
-    pendingPhotoFile = null;
+    photos = [];
+    renderPhotoGallery();
+    toggleFoundLocationOther();
     btnDelete.style.display = 'none';
     modalTitle.textContent = 'Registrar objeto';
     populateRecipientOptions();
@@ -764,6 +860,19 @@
       document.getElementById('itemDescription').value = item.item_description || '';
       document.getElementById('foundDate').value = item.found_date || '';
       document.getElementById('foundBy').value = item.found_by || '';
+
+      const knownLocations = ['Habitación','Lobby','Bar','Restaurante','Baño del lobby','Piscina / Spa','Estacionamiento','Salón de eventos','Gimnasio'];
+      if(item.found_location && knownLocations.includes(item.found_location)){
+        foundLocationSel.value = item.found_location;
+        foundLocationOtherInput.value = '';
+      } else if(item.found_location){
+        foundLocationSel.value = 'Otro';
+        foundLocationOtherInput.value = item.found_location;
+      } else {
+        foundLocationSel.value = 'Habitación';
+        foundLocationOtherInput.value = '';
+      }
+      toggleFoundLocationOther();
       document.getElementById('currentCustody').value = item.current_custody || 'housekeeping';
       populateRecipientOptions();
       const knownOptions = RECIPIENT_OPTIONS[item.current_custody || 'housekeeping'] || [];
@@ -780,10 +889,11 @@
       }
       updateRetiredFieldsState();
       document.getElementById('notes').value = item.notes || '';
-      photoUrlHidden.value = item.photo_url || '';
-      if(item.photo_url){
-        photoPreview.style.backgroundImage = `url(${item.photo_url})`;
-      }
+      const existingUrls = (item.photo_urls && item.photo_urls.length)
+        ? item.photo_urls
+        : (item.photo_url ? [item.photo_url] : []);
+      photos = existingUrls.map(url => ({ kind: 'existing', url }));
+      renderPhotoGallery();
       btnDelete.style.display = 'inline-flex';
       btnDelete.dataset.id = item.id;
     }
@@ -813,20 +923,27 @@
     renderGrid();
   });
 
-  async function uploadPhotoIfNeeded(itemId){
-    if(!pendingPhotoFile) return photoUrlHidden.value || null;
-    const ext = pendingPhotoFile.name.split('.').pop();
-    const path = `${itemId}/${Date.now()}.${ext}`;
-    const { error: uploadError } = await supabase
-      .storage
-      .from(PHOTO_BUCKET)
-      .upload(path, pendingPhotoFile, { upsert: true });
-    if(uploadError){
-      alert('No se pudo subir la foto: ' + uploadError.message);
-      return photoUrlHidden.value || null;
+  async function uploadAllPhotos(itemId){
+    const urls = [];
+    for(const p of photos){
+      if(p.kind === 'existing'){
+        urls.push(p.url);
+        continue;
+      }
+      const ext = p.file.name.split('.').pop();
+      const path = `${itemId}/${Date.now()}_${Math.random().toString(36).slice(2,7)}.${ext}`;
+      const { error: uploadError } = await supabase
+        .storage
+        .from(PHOTO_BUCKET)
+        .upload(path, p.file, { upsert: true });
+      if(uploadError){
+        alert('No se pudo subir una de las fotos: ' + uploadError.message);
+        continue;
+      }
+      const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
+      urls.push(data.publicUrl);
     }
-    const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
-    return data.publicUrl;
+    return urls;
   }
 
   form.addEventListener('submit', async (e) => {
@@ -839,7 +956,10 @@
       : recipientRoleSel.value;
     const recipientName = document.getElementById('recipientName').value;
 
-    const photoUrl = await uploadPhotoIfNeeded(id);
+    const photoUrls = await uploadAllPhotos(id);
+    const foundLocationValue = foundLocationSel.value === 'Otro'
+      ? (foundLocationOtherInput.value || 'Otro')
+      : foundLocationSel.value;
 
     const payload = {
       id,
@@ -850,6 +970,7 @@
       item_description: document.getElementById('itemDescription').value,
       found_date: document.getElementById('foundDate').value || null,
       found_by: document.getElementById('foundBy').value || null,
+      found_location: foundLocationValue || null,
       current_custody: document.getElementById('currentCustody').value,
       internal_recipient_role: recipientRoleSel.value === 'Otro' ? 'Otro' : recipientRoleSel.value,
       internal_recipient_other: recipientRoleSel.value === 'Otro' ? document.getElementById('recipientOther').value : null,
@@ -859,7 +980,8 @@
       retrieved_date: document.getElementById('retrievedDate').value || null,
       retrieved_by: document.getElementById('retrievedBy').value || null,
       notes: document.getElementById('notes').value || null,
-      photo_url: photoUrl
+      photo_url: photoUrls[0] || null,
+      photo_urls: photoUrls
     };
 
     const { error } = await supabase.from('lost_items').upsert(payload);
@@ -882,6 +1004,8 @@
 
   populateRecipientOptions();
   updateRetiredFieldsState();
+  renderPhotoGallery();
+  toggleFoundLocationOther();
   loadItems();
 </script>
 </body>

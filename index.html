@@ -160,6 +160,20 @@
   }
   .btn.danger:hover{background:var(--rust-bg);}
 
+  .export-dropdown{position:relative; display:inline-block;}
+  .export-menu{
+    display:none; position:absolute; top:calc(100% + 6px); left:0;
+    background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); min-width:230px; z-index:60; overflow:hidden; padding:4px;
+  }
+  .export-menu.open{display:block;}
+  .export-menu button{
+    display:flex; width:100%; text-align:left; border:none; background:transparent;
+    padding:10px 10px; border-radius:2px; font-size:13.5px; font-weight:500; color:var(--text);
+    cursor:pointer;
+  }
+  .export-menu button:hover{background:var(--paper-dim);}
+
   /* ---------- Empty / loading states ---------- */
   .empty-state, .config-warning{
     background:#fff;
@@ -459,7 +473,7 @@
   <div class="masthead-inner">
     <div>
       <div class="brand-eyebrow">Objetos olvidados · control interno</div>
-      <h1 class="brand">Lost <em>&amp;</em> Found tracking</h1>
+      <h1 class="brand">Lost <em>&amp;</em> Found</h1>
     </div>
     <div class="masthead-stats">
       <div class="stat n-hotel">
@@ -491,6 +505,13 @@
       <button data-filter="all" class="active">Todos</button>
       <button data-filter="en_poder_hotel">En el hotel</button>
       <button data-filter="retirado">Retirados</button>
+    </div>
+    <div class="export-dropdown">
+      <button type="button" class="btn secondary" id="exportBtn">Exportar ▾</button>
+      <div class="export-menu" id="exportMenu">
+        <button type="button" id="exportExcelBtn">📊 Excel (tabla)</button>
+        <button type="button" id="exportJsonBtn">📄 JSON (respaldo completo)</button>
+      </div>
     </div>
     <button class="btn" id="btnNew">+ Registrar objeto</button>
   </div>
@@ -641,6 +662,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script type="module">
   import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -1047,6 +1069,97 @@
     if(error){ alert('Error al eliminar: ' + error.message); return; }
     closeModal();
     loadItems();
+  });
+
+  /* ---------- EXPORT DROPDOWN ---------- */
+  const exportMenu = document.getElementById('exportMenu');
+  document.getElementById('exportBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    exportMenu.classList.toggle('open');
+  });
+  document.addEventListener('click', ()=> exportMenu.classList.remove('open'));
+
+  function downloadBlobLF(blob, filename){
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  document.getElementById('exportJsonBtn').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify(allItems, null, 2)], { type:'application/json' });
+    downloadBlobLF(blob, 'lost_and_found_' + new Date().toISOString().slice(0,10) + '.json');
+  });
+
+  document.getElementById('exportExcelBtn').addEventListener('click', async ()=>{
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Lost & Found';
+    const sheet = wb.addWorksheet('Objetos', { views:[{ state:'frozen', ySplit:1 }] });
+
+    sheet.columns = [
+      { header:'Folio', key:'folio', width:14 },
+      { header:'Huésped', key:'guest', width:20 },
+      { header:'Habitación', key:'room', width:12 },
+      { header:'Check-in', key:'checkin', width:12 },
+      { header:'Check-out', key:'checkout', width:12 },
+      { header:'Objeto', key:'item', width:34 },
+      { header:'Fecha encontrado', key:'founddate', width:16 },
+      { header:'Encontrado por', key:'foundby', width:20 },
+      { header:'Lugar', key:'location', width:16 },
+      { header:'En poder de', key:'custody', width:16 },
+      { header:'Derivado a', key:'recipient', width:22 },
+      { header:'Estado', key:'status', width:14 },
+      { header:'Fecha retiro', key:'retdate', width:14 },
+      { header:'Retirado por', key:'retby', width:18 },
+      { header:'Fotos', key:'photos', width:10 },
+      { header:'Notas', key:'notes', width:40 },
+    ];
+
+    allItems.forEach(item=>{
+      const photoCount = (item.photo_urls && item.photo_urls.length) ? item.photo_urls.length : (item.photo_url ? 1 : 0);
+      sheet.addRow({
+        folio: item.id ? String(item.id).slice(0,8) : '',
+        guest: item.guest_name || '',
+        room: item.room || '',
+        checkin: item.check_in || '',
+        checkout: item.check_out || '',
+        item: item.item_description || '',
+        founddate: item.found_date || '',
+        foundby: item.found_by || '',
+        location: item.found_location || '',
+        custody: item.current_custody || '',
+        recipient: item.internal_recipient || '',
+        status: item.status === 'retirado' ? 'Retirado' : 'En el hotel',
+        retdate: item.retrieved_date || '',
+        retby: item.retrieved_by || '',
+        photos: photoCount,
+        notes: item.notes || ''
+      });
+    });
+
+    const headerRow = sheet.getRow(1);
+    headerRow.eachCell(cell=>{
+      cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 };
+      cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1B2F52' } };
+      cell.alignment = { vertical:'middle', horizontal:'left' };
+      cell.border = { bottom:{ style:'thin', color:{ argb:'FF0F1E38' } } };
+    });
+    headerRow.height = 22;
+
+    sheet.eachRow((row, rowNumber)=>{
+      if(rowNumber===1) return;
+      row.eachCell(cell=>{
+        cell.alignment = { vertical:'top', wrapText:true };
+        cell.border = { bottom:{ style:'thin', color:{ argb:'FFDCE1E8' } } };
+        cell.font = { size:10.5 };
+      });
+      if(rowNumber % 2 === 0){
+        row.eachCell(cell=>{ cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFF3F5F8' } }; });
+      }
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    downloadBlobLF(blob, 'lost_and_found_' + new Date().toISOString().slice(0,10) + '.xlsx');
   });
 
   populateRecipientOptions();
